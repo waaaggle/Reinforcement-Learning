@@ -2,20 +2,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.basic import BasicModel
-from show.loss_display import show_loss
-from train.logger import my_logger
+from utils.loss_display import show_loss
+from utils.logger import my_logger
 
 class ActorNetwork(nn.Module):
-    def __init__(self, state_dim, hidden_dim, action_dim, bound):
+    def __init__(self, state_dim, hidden_dim, action_dim, action_bound):
         super().__init__()
         self.f1 = nn.Linear(state_dim, hidden_dim)
         self.f2 = nn.Linear(hidden_dim, action_dim)
-        self.bound = bound
+        self.action_bound = action_bound
 
     def forward(self, inputs):
         x = F.relu(self.f1(inputs))
         x = F.tanh(self.f2(x))
-        return x*self.bound          #必须是具体action的值，值的范围是[-bound,bound]之间
+        return x*self.action_bound          #必须是具体action的值，值的范围是[-bound,bound]之间
 
 class CriticNetwork(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim):
@@ -29,7 +29,7 @@ class CriticNetwork(nn.Module):
         return self.f2(x)         #得到的是估计Q值，不是V值
 
 class DDPG(BasicModel):
-    def __init__(self, learning_rate, gamma, noise_std, tau, bound, state_dim, action_dim, hidden_dim):
+    def __init__(self, learning_rate, gamma, noise_std, tau, action_bound, state_dim, action_dim, hidden_dim):
         super().__init__()
         self.actor_loss = []
         self.critic_loss = []
@@ -38,8 +38,8 @@ class DDPG(BasicModel):
         self.noise_std = noise_std
         self.tau = tau
         #actor网络
-        self.actor_net = ActorNetwork(state_dim, hidden_dim, action_dim, bound)
-        self.target_actor_net = ActorNetwork(state_dim, hidden_dim, action_dim, bound)
+        self.actor_net = ActorNetwork(state_dim, hidden_dim, action_dim, action_bound)
+        self.target_actor_net = ActorNetwork(state_dim, hidden_dim, action_dim, action_bound)
         self.target_actor_net.load_state_dict(self.actor_net.state_dict())
         self.actor_optimizer = torch.optim.Adam(self.actor_net.parameters(), lr=learning_rate)  # target网络拷贝actor_net网络参数
 
@@ -65,6 +65,8 @@ class DDPG(BasicModel):
     def train(self, samples):
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)
         actions_tensor = torch.tensor(samples['actions'], dtype=torch.float32)
+        if actions_tensor.dim() == 1:
+            actions_tensor = actions_tensor.unsqueeze(1)
         rewards_tensor = torch.tensor(samples['rewards'], dtype=torch.float32).unsqueeze(1)
         next_states_tensor = torch.tensor(samples['next_states'], dtype=torch.float32)
         dones_tensor = torch.tensor(samples['dones'], dtype=torch.float32).unsqueeze(1)
@@ -79,20 +81,20 @@ class DDPG(BasicModel):
         #使用训练网络计算Q(S,A)并拟合td target，critic网络越准越好
         Q_S_A = self.critic_net(states_tensor, actions_tensor)
         critic_loss = (Q_S_A - td_target.detach()).pow(2).mean()
-        my_logger.debug('ddpg critic loss:', critic_loss)
+        my_logger.debug('ddpg critic loss:', critic_loss.item())
         self.critic_optimizer.zero_grad()
-        self.critic_loss.append(critic_loss.detach())
         critic_loss.backward()
+        self.critic_loss.append(critic_loss.item())
         self.critic_optimizer.step()
 
         #此处需要重新计算Q_S_A,否则计算图会出错，计算actor loss，actor网络产生对应action的Q价值越大越好
         actions = self.actor_net(states_tensor)
         Q_S_A = self.critic_net(states_tensor, actions)
         actor_loss = -torch.mean(Q_S_A)
-        my_logger.debug('ddpg actor loss:', actor_loss)
-        self.actor_loss.append(actor_loss.detach())
+        my_logger.debug('ddpg actor loss:', actor_loss.item())
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
+        self.actor_loss.append(actor_loss.item())
         self.actor_optimizer.step()
 
         #更新target网络

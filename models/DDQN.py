@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.basic import BasicModel
-from show.loss_display import show_loss
-from train.logger import my_logger
+from utils.loss_display import show_loss
+from utils.logger import my_logger
 
 class DDQN_QNetwork(nn.Module):
     def __init__(self, state_dim, hidden_dim, output_dim):
@@ -42,7 +42,7 @@ class DDQN(BasicModel):
 
     def train(self, samples):
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)
-        actions_tensor = torch.tensor(samples['actions']).unsqueeze(1)
+        actions_tensor = torch.tensor(samples['actions']).unsqueeze(1)  #action是单个值，最后一维需要升维度得到(bsz,1)
         rewards_tensor = torch.tensor(samples['rewards'], dtype=torch.float32).unsqueeze(1)
         next_states_tensor = torch.tensor(samples['next_states'], dtype=torch.float32)
         dones_tensor = torch.tensor(samples['dones'], dtype=torch.float32).unsqueeze(1)
@@ -65,8 +65,8 @@ class DDQN(BasicModel):
 
         #均方误差损失，网络越准越好
         loss = (Q_S_A - td_target.detach()).pow(2).mean()
-        my_logger.debug('ddqn loss:', loss)
-        self.loss.append(loss.detach())
+        my_logger.debug('ddqn loss:', loss.item())
+        self.loss.append(loss.item())
 
         #反向传播更新网络
         self.q_net_optimizer.zero_grad()
