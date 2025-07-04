@@ -67,11 +67,11 @@ class BasicModel(ABC):
 
 if __name__ == "__main__":
     test_tensor = torch.tensor([[1,2,3,4,5],[3,4,5,6,7]], dtype=torch.float)
-    t = take_action_probility(test_tensor)
-    print(t)
-
-    t = take_action_epsilon_greedy(1, test_tensor)
-    print(t)
-
-    t = take_action_with_noise(test_tensor, 0.1)
-    print(t)
+    # t = take_action_probility(test_tensor)
+    # print(t)
+    #
+    # t = take_action_epsilon_greedy(1, test_tensor)
+    # print(t)
+    #
+    # t = take_action_with_noise(test_tensor, 0.1)
+    # print(t)

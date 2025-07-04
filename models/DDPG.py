@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from models.basic import BasicModel
 from utils.loss_display import show_loss
 from utils.logger import my_logger
+from utils.parse_config import load_training_config
 
 class ActorNetwork(nn.Module):
     def __init__(self, state_dim, hidden_dim, action_dim, action_bound):
@@ -29,7 +30,7 @@ class CriticNetwork(nn.Module):
         return self.f2(x)         #得到的是估计Q值，不是V值
 
 class DDPG(BasicModel):
-    def __init__(self, learning_rate, gamma, noise_std, tau, action_bound, state_dim, action_dim, hidden_dim):
+    def __init__(self, learning_rate, gamma, noise_std, tau, action_bound, hidden_dim, state_dim, action_dim):
         super().__init__()
         self.actor_loss = []
         self.critic_loss = []
@@ -60,6 +61,7 @@ class DDPG(BasicModel):
         super().update_model_params(self.target_critic_net, self.critic_net, True, self.tau)
 
     def show_loss_procedure(self):
+        my_logger.info("train ddqn end, actor loss count:{}, critic loss count:{}".format(len(self.actor_loss),len(self.critic_loss)))
         show_loss(actor_loss = self.actor_loss, critic_loss= self.critic_loss)
 
     def train(self, samples):
@@ -81,7 +83,7 @@ class DDPG(BasicModel):
         #使用训练网络计算Q(S,A)并拟合td target，critic网络越准越好
         Q_S_A = self.critic_net(states_tensor, actions_tensor)
         critic_loss = (Q_S_A - td_target.detach()).pow(2).mean()
-        my_logger.debug('ddpg critic loss:', critic_loss.item())
+        # my_logger.debug('ddpg critic loss:{}'.format(critic_loss.item()))
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_loss.append(critic_loss.item())
@@ -91,7 +93,7 @@ class DDPG(BasicModel):
         actions = self.actor_net(states_tensor)
         Q_S_A = self.critic_net(states_tensor, actions)
         actor_loss = -torch.mean(Q_S_A)
-        my_logger.debug('ddpg actor loss:', actor_loss.item())
+        # my_logger.debug('ddpg actor loss:', actor_loss.item())
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_loss.append(actor_loss.item())
@@ -99,6 +101,21 @@ class DDPG(BasicModel):
 
         #更新target网络
         self.update_target_model()
+
+def ddpg_get_trained_model(env_params):
+    state_dim, state_count, action_dim, action_count = env_params
+    #解析训练参数
+    params = load_training_config('DDPG')
+    my_logger.info("train ddpg begin.")
+    train_model = DDPG(params['learning_rate'],
+                        params['gamma'],
+                        params['noise_std'],
+                        params['tau'],
+                        params['action_bound'],
+                        params['hidden_dim'],
+                        state_dim,
+                        action_dim)
+    return train_model
 
 if __name__ == '__main__':
     batch_samples = {
@@ -109,7 +126,7 @@ if __name__ == '__main__':
         'dones':(1, 0, 0, 1, 0),
         'infos':('test 1', 'test 2', 'test 3', 'test 4', 'test 5', ),
     }
-    train_model = DDPG(1e-4, 0.99, 0.1,  0.05, 2, 5, 1, 128)
+    train_model = DDPG(1e-4, 0.99, 0.1,  0.05, 2, 128, 5, 1)
     for _ in range(100):
         train_model.train(batch_samples)
     train_model.show_loss_procedure()

@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from models.basic import BasicModel
 from utils.loss_display import show_loss
 from utils.logger import my_logger
+from utils.parse_config import load_training_config
 
 class DDQN_QNetwork(nn.Module):
     def __init__(self, state_dim, hidden_dim, output_dim):
@@ -16,7 +17,7 @@ class DDQN_QNetwork(nn.Module):
         return self.f2(x)         #必须要relu，需要输出每个action的输出Q值，不是概率
 
 class DDQN(BasicModel):
-    def __init__(self, learning_rate, epsilon, gamma, tau, state_dim, hidden_dim, output_dim):
+    def __init__(self, learning_rate, epsilon, gamma, tau, hidden_dim, state_dim, output_dim):
         super().__init__()
         self.loss = list()
         self.learning_rate = learning_rate
@@ -38,11 +39,13 @@ class DDQN(BasicModel):
         super().update_model_params(self.target_q_net, self.q_net)
 
     def show_loss_procedure(self):
+        my_logger.info("train ddqn end, loss count:{}".format(len(self.loss)))
         show_loss(ddqn_loss = self.loss)
 
     def train(self, samples):
+        print(samples)
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)
-        actions_tensor = torch.tensor(samples['actions']).unsqueeze(1)  #action是单个值，最后一维需要升维度得到(bsz,1)
+        actions_tensor = torch.tensor(samples['actions']).unsqueeze(1)
         rewards_tensor = torch.tensor(samples['rewards'], dtype=torch.float32).unsqueeze(1)
         next_states_tensor = torch.tensor(samples['next_states'], dtype=torch.float32)
         dones_tensor = torch.tensor(samples['dones'], dtype=torch.float32).unsqueeze(1)
@@ -65,7 +68,7 @@ class DDQN(BasicModel):
 
         #均方误差损失，网络越准越好
         loss = (Q_S_A - td_target.detach()).pow(2).mean()
-        my_logger.debug('ddqn loss:', loss.item())
+        # my_logger.debug('ddqn loss:', loss.item())
         self.loss.append(loss.item())
 
         #反向传播更新网络
@@ -76,6 +79,20 @@ class DDQN(BasicModel):
         #更新target网络
         self.update_target_model()
 
+def ddqn_get_trained_model(env_params):
+    state_dim, state_count, action_dim, action_count = env_params
+    #解析训练参数
+    params = load_training_config('DDQN')
+    my_logger.info("train ddqn begin.")
+    train_model = DDQN(params['learning_rate'],
+                        params['epsilon'],
+                        params['gamma'],
+                        params['tau'],
+                        params['hidden_dim'],
+                        state_dim,
+                        action_count)
+    return train_model
+
 if __name__ == '__main__':
     batch_samples = {
         'states':([1,2,3,4,5], [2,3,4,5,6], [11,12,13,14,15], [21,22,23,24,25], [201,202,230,204,205]),
@@ -85,7 +102,7 @@ if __name__ == '__main__':
         'dones':(1, 0, 0, 1, 0),
         'infos':('test 1', 'test 2', 'test 3', 'test 4', 'test 5', ),
     }
-    train_model = DDQN(1e-3, 0.1, 0.99, 0.1, 5, 128, 3)
+    train_model = DDQN(1e-3, 0.1, 0.99, 0.1, 128, 5, 3)
     for _ in range(100):
         train_model.train(batch_samples)
     train_model.show_loss_procedure()
