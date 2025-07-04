@@ -46,7 +46,8 @@ def off_policy_expolre(samples_pool, agent, env_inst, num_episodes, num_episodes
             #action需要的类型为#<class 'numpy.int64'> or  <class 'numpy.ndarray'>
             if 0 == action_tensor.dim():  #类型为#<class 'numpy.int64'>
                 # action = np.int64(action_tensor.item())
-                action = action_tensor.detach().numpy()
+                # action = action_tensor.detach().numpy()
+                action = action_tensor.item()
             elif 1 == action_tensor.dim():  #类型为<class 'numpy.ndarray'>
                 action = action_tensor.detach().numpy()
             else:
