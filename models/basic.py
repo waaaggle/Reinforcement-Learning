@@ -6,11 +6,15 @@ class BasicModel(ABC):
     @abstractmethod
     def take_action(self, states):
         pass
+
+    @abstractmethod
+    def update_epsode_rewards(self, epsode_reward):
+        ...
     @abstractmethod
     def update_target_model(self):
         ...     #于pass等价
     @abstractmethod
-    def show_loss_procedure(self):
+    def show_procedure(self):
         pass
     @abstractmethod
     def train(self, samples):
@@ -45,24 +49,37 @@ class BasicModel(ABC):
     def take_action_epsilon_greedy(self, epsilon, actions):
         if actions.dim() == 1:  # actions是按batch输入，并且得到的是action的概率分布
             if random.random() < epsilon:  # 随机探索
-                indices = torch.randint(0, len(actions), ())
+                indices = torch.randint(0, len(actions)-1, ())
             else:  # 最优选择
                 indices = torch.argmax(actions)
         else:
             raise Exception('invalid action tensors:{}, dim:{}'.format(actions, actions.dim()))
         return indices
 
-    #按照概率分布采样，Policy-gradient算法采用
+    #按照离散动作概率分布采样，Policy-gradient算法采用,DDQN
     def take_action_probility(self, actions):
-        # epsilon代表探索概率
-        # actions = torch.softmax(actions, dim=1)
-        t = actions.softmax(dim=1)
+        # actions 模型输出结果已经是概率分布
         dist = torch.distributions.Categorical(actions)
         return dist.sample()    #得到tensor，返回的是采样索引
 
+    #按照连续动作的正太分布概率密度采样，主要是PPO
+    def take_action_with_distribution(self, mu, sigma):
+        """
+        按概率密度（正态分布）采样动作
+        Args:
+            mu: 均值，可以是标量、向量或tensor
+            sigma: 标准差，可以是标量、向量或tensor
+            sample_shape: 采样数量，比如(10,)表示采10个
+        Returns:
+            采样得到的动作（tensor）
+        """
+        action_dist = torch.distributions.Normal(mu, sigma)
+        select_action = action_dist.sample()
+        return select_action
+
     #确定性动作增加正太分布噪声，主要是DDPG
     def take_action_with_noise(self, actions, noise_std):
-        noise = torch.rand_like(actions) * noise_std  #rand_like生成正太分布
+        noise = torch.randn_like(actions) * noise_std  #rand_like生成正太分布
         return actions+noise
 
 if __name__ == "__main__":

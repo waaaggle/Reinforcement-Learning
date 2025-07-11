@@ -2,53 +2,72 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.basic import BasicModel
-from utils.loss_display import show_loss
+from utils.display import show_train_procedure
 from utils.logger import my_logger
 from utils.parse_config import load_training_config
 
+#状态动作价值模型
 class DDQN_QNetwork(nn.Module):
-    def __init__(self, state_dim, hidden_dim, output_dim):
+    def __init__(self, state_dim, hidden_dim, action_count):
         super().__init__()
         self.f1 = nn.Linear(state_dim, hidden_dim)
-        self.f2 = nn.Linear(hidden_dim, output_dim)         #output_dim为action取值的个数
+        self.f2 = nn.Linear(hidden_dim, hidden_dim)
+        self.f3 = nn.Linear(hidden_dim, action_count)         #输出是离散的，action_count为action取值的个数
 
     def forward(self, inputs):
         x = F.relu(self.f1(inputs))
-        return self.f2(x)         #必须要relu，需要输出每个action的输出Q值，不是概率
+        x = F.relu(self.f2(x))
+        return self.f3(x)         #必须要relu，需要输出每个action的输出Q值，不是概率
 
 class DDQN(BasicModel):
-    def __init__(self, learning_rate, epsilon, gamma, tau, hidden_dim, state_dim, output_dim):
+    def __init__(self, learning_rate, epsilon_decay_steps, epsilon_start, epsilon_end, gamma, tau, hidden_dim, state_dim, action_count):
         super().__init__()
         self.loss = list()
         self.learning_rate = learning_rate
-        self.epsilon = epsilon
+        self.epsilon_decay_steps = epsilon_decay_steps
+        self.epsilon_start = epsilon_start
+        self.epsilon_end = epsilon_end
         self.gamma = gamma
         self.tau = tau
-        self.q_net = DDQN_QNetwork(state_dim, hidden_dim, output_dim)
-        self.target_q_net = DDQN_QNetwork(state_dim, hidden_dim, output_dim)
+        self.q_net = DDQN_QNetwork(state_dim, hidden_dim, action_count)
+        self.target_q_net = DDQN_QNetwork(state_dim, hidden_dim, action_count)
         self.target_q_net.load_state_dict(self.q_net.state_dict())
         self.q_net_optimizer = torch.optim.Adam(self.q_net.parameters(), lr=learning_rate)  #target网络拷贝q_net网络参数
+        self.total_train_steps = 0
+        self.epsode_rewards = []
 
     #state只可能是一条样本，不能是batch
-    def take_action(self, state)->torch.Tensor:
-        actions = self.q_net(state)
-        select_action = super().take_action_epsilon_greedy(self.epsilon, actions)
+    def take_action(self, states_tensor)->torch.Tensor:
+        self.total_train_steps += 1
+        actions = self.q_net(states_tensor)
+        epsilon = max(self.epsilon_end, self.epsilon_start - self.total_train_steps / self.epsilon_decay_steps * (self.epsilon_start - self.epsilon_end))
+        select_action = self.take_action_epsilon_greedy(epsilon, actions)
+
         return select_action    #得到的是action的编号，不是action值
 
-    def update_target_model(self):
-        super().update_model_params(self.target_q_net, self.q_net)
+    def update_epsode_rewards(self, epsode_reward):
+        self.epsode_rewards.append(epsode_reward)
 
-    def show_loss_procedure(self):
+    def update_target_model(self):
+        if self.total_train_steps % 1000 == 0:
+            super().update_model_params(self.target_q_net, self.q_net)
+
+    def show_procedure(self):
         my_logger.info("train ddqn end, loss count:{}".format(len(self.loss)))
-        show_loss(ddqn_loss = self.loss)
+        show_train_procedure(ddqn_loss = self.loss, epsode_rewards = self.epsode_rewards)
 
     def train(self, samples):
-        print(samples)
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)
         actions_tensor = torch.tensor(samples['actions']).unsqueeze(1)
         rewards_tensor = torch.tensor(samples['rewards'], dtype=torch.float32).unsqueeze(1)
         next_states_tensor = torch.tensor(samples['next_states'], dtype=torch.float32)
         dones_tensor = torch.tensor(samples['dones'], dtype=torch.float32).unsqueeze(1)
+
+        print('states_tensor:', states_tensor)
+        print('actions_tensor:', actions_tensor)
+        print('rewards_tensor:', rewards_tensor)
+        print('next_states_tensor:', next_states_tensor)
+        print('dones_tensor:', dones_tensor)
 
         #使用train网络获得当前当前action价值以及下个state最大价值action
         current_state_value = self.q_net(states_tensor)
@@ -85,7 +104,9 @@ def ddqn_get_trained_model(env_params):
     params = load_training_config('DDQN')
     my_logger.info("train ddqn begin.")
     train_model = DDQN(params['learning_rate'],
-                        params['epsilon'],
+                        params['epsilon_decay_steps'],
+                        params['epsilon_start'],
+                        params['epsilon_end'],
                         params['gamma'],
                         params['tau'],
                         params['hidden_dim'],
@@ -102,7 +123,7 @@ if __name__ == '__main__':
         'dones':(1, 0, 0, 1, 0),
         'infos':('test 1', 'test 2', 'test 3', 'test 4', 'test 5', ),
     }
-    train_model = DDQN(1e-3, 0.1, 0.99, 0.1, 128, 5, 3)
+    train_model = DDQN(1e-3, 50000, 1.0, 0.1, 0.99, 0.1, 128, 5, 3)
     for _ in range(100):
         train_model.train(batch_samples)
-    train_model.show_loss_procedure()
+    train_model.show_procedure()
