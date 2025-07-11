@@ -22,21 +22,17 @@ def train(model_name, env_name):
     samp_pool = SamplePool(params['sample_pool_size'])
 
     #探索学习
-    off_policy_expolre(samp_pool, train_model, env_inst, params['num_episodes'], params['num_episodes_per_train'], params['batch_size'])
+    off_policy_expolre(samp_pool, train_model, env_inst, params['num_episodes'], params['warmup_steps'], params['num_episodes_per_train'], params['batch_size'])
     # on_policy_expolre(samp_pool, train_model, env_inst, params['num_episodes'], params['batch_size'])
 
     # 关闭采样环境
     env_inst.close()
 
     #显示损失
-    train_model.show_loss_procedure()
+    train_model.show_procedure()
 
 if __name__ == '__main__':
     # train('DDQN', 'LunarLander-v3')
-    # train('DDQN', 'BipedalWalker-v3')
     # train('DDQN', 'VIRTUAL-v1')
-    # train('DDQN', 'VIRTUAL-v2')
-    # train('DDPG', 'LunarLander-v3')
-    # train('DDPG', 'BipedalWalker-v3')
-    # train('DDPG', 'VIRTUAL-v1')
-    train('DDPG', 'VIRTUAL-v2')
+    train('DDPG', 'BipedalWalker-v3')
+    # train('DDPG', 'VIRTUAL-v2')

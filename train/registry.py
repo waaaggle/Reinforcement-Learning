@@ -2,6 +2,8 @@ from enviroment.virtual_env import start_virtual_env
 from enviroment.gym_env import start_gym_env
 from models.DDQN import ddqn_get_trained_model
 from models.DDPG import ddpg_get_trained_model
+from models.PPO import ppov1_get_trained_model
+from models.PPO import ppov2_get_trained_model
 from utils.logger import my_logger
 
 
@@ -22,6 +24,8 @@ class RegistryInfo(object):
     model_list = {
         'DDQN':{'action_type':['discrete'], 'start_func':ddqn_get_trained_model},
         'DDPG':{'action_type':['continous'], 'start_func':ddpg_get_trained_model},
+        'PPOv1':{'action_type':['discrete'], 'start_func':ppov1_get_trained_model},
+        'PPOv2':{'action_type':['continous'], 'start_func':ppov2_get_trained_model},
         # 'PPO':{'action_type':[], 'start_func':None}
     }
     env_start_registry = {
