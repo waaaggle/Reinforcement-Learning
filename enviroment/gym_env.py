@@ -65,6 +65,7 @@ class GymEnviroment(BasicEnviroment):
 
     def step(self, action):
         next_obs, self.reward, terminated, truncated, self.info = self.env.step(action)
+        # print('gym output:',next_obs, self.reward)
         self.done = terminated or truncated
         self.obs = next_obs
         return next_obs, self.reward, self.done, self.info
@@ -72,6 +73,7 @@ class GymEnviroment(BasicEnviroment):
     def reset(self):
         self.obs, self.info = self.env.reset()
         self.done = False
+        return self.obs
 
     def close(self):
         self.reset()

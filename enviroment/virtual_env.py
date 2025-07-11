@@ -103,6 +103,7 @@ class VirtualEnviroment(BasicEnviroment):
         self.counts = 1
         self.info = '{}th steps'.format(self.counts)
         self.Done = False
+        return self.obs
 
     def close(self):
         self.reset()
