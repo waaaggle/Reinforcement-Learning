@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 from utils.logger import my_logger
+from tqdm import tqdm
+
 def explore_one_step(agent, env_inst, obs):
     state_tensor = torch.tensor(obs, dtype=torch.float32)
     action_tensor = agent.take_action(state_tensor)  # 实际训练时用agent输出
@@ -18,61 +20,52 @@ def explore_one_step(agent, env_inst, obs):
 
     return action, next_obs, reward, done, info
 
-def warming_up(warmup_steps, samples_pool, agent, env_inst):
-    if warmup_steps > 0:
-        my_logger.debug('warmup take genarate samples, count:{}'.format(warmup_steps))
-        obs = env_inst.reset()
-        for step in range(warmup_steps):
-            action, next_obs, reward, done, info = explore_one_step(agent, env_inst, obs)
-            samples_pool.push((obs, action, reward, next_obs, done, info))
-            if done:
-                obs = env_inst.reset()
-            else:
-                obs = next_obs
-
 #使用agent在环境中探索num_episodes次,没探索一次会产生多条样本放入样本池，每次从样本池随机选一个batch训练
-def on_policy_expolre(samples_pool, agent, env_inst, num_episodes, batch_size):
+def on_policy_expolre(samples_pool, agent, env_inst, num_episodes):
     episodes_count = 0
-    while episodes_count < num_episodes:
-        done = False
-        obs = env_inst.reset()
-        samples_pool.clear()
-        episode_reward = 0
-        while not done:
-            action, next_obs, reward, done, info = explore_one_step(agent, env_inst, obs)
-            episode_reward += reward
-            samples_pool.push((obs, action, reward, next_obs, done, info))
-            obs = next_obs
-        agent.update_epsode_rewards(episode_reward)
-        if samples_pool.size() >= batch_size:
-            batch_samples = samples_pool.samples_k(batch_size)
-        else:
-            batch_samples = samples_pool.samples_k(samples_pool.size())
-        agent.train(batch_samples)
-        episodes_count += 1
+    with tqdm(total=num_episodes, desc='训练进度') as pbar:
+        while episodes_count < num_episodes:
+            done = False
+            obs = env_inst.reset()
+            samples_pool.clear()
+            episode_reward = 0
+            while not done:
+                action, next_obs, reward, done, info = explore_one_step(agent, env_inst, obs)
+                episode_reward += reward
+                samples_pool.push((obs, action, reward, next_obs, done, info))
+                obs = next_obs
+            agent.update_epsode_rewards(episode_reward)
+            #按顺序从头到尾打包sample
+            batch_samples = samples_pool.samples_all_in_order()
+            agent.train(batch_samples)
+            episodes_count += 1
+            #进度条前进1，自动根据总episode映射
+            pbar.set_postfix({'episode': '%d' % (episodes_count), 'return': '%.3f' % np.mean(agent.epsode_rewards[-10:])})
+            pbar.update(1)
 
 #使用agent在环境中探索num_episodes次,没探索一次会产生多条样本放入样本池，每次从样本池随机选一个batch训练
 def off_policy_expolre(samples_pool, agent, env_inst, num_episodes, warmup_steps, num_episodes_per_train, batch_size):
     episodes_count = 0
-    #样本预采集
-    if warmup_steps > 0:
-        warming_up(warmup_steps, samples_pool, agent, env_inst)
-
-    #正式采集num_episodes轮
-    while episodes_count < num_episodes:
-        done = False
-        obs = env_inst.reset()
-        episode_reward = 0
-        while not done:
-            action, next_obs, reward, done, info = explore_one_step(agent, env_inst, obs)
-            episode_reward += reward
-            samples_pool.push((obs, action, reward, next_obs, done, info))
-            obs = next_obs
-        agent.update_epsode_rewards(episode_reward)
-        if episodes_count %num_episodes_per_train ==0 and samples_pool.size() >= batch_size:
-            batch_samples = samples_pool.samples_k(batch_size)
-            agent.train(batch_samples)
-        episodes_count += 1
+    with tqdm(total=num_episodes, desc='训练进度') as pbar:
+        #正式采集num_episodes轮
+        while episodes_count < num_episodes:
+            done = False
+            obs = env_inst.reset()
+            episode_reward = 0
+            while not done:
+                action, next_obs, reward, done, info = explore_one_step(agent, env_inst, obs)
+                episode_reward += reward
+                samples_pool.push((obs, action, reward, next_obs, done, info))
+                #每多少个episode训练一次，且要buffer个数大于warmup数量
+                if episodes_count % num_episodes_per_train == 0 and samples_pool.size() > warmup_steps and samples_pool.size() >= batch_size:
+                    batch_samples = samples_pool.samples_k(batch_size)
+                    agent.train(batch_samples)
+                obs = next_obs
+            agent.update_epsode_rewards(episode_reward)
+            episodes_count += 1
+            #进度条前进1，自动根据总episode映射
+            pbar.set_postfix({'episode': '%d' % (episodes_count), 'return': '%.3f' % np.mean(agent.epsode_rewards[-10:])})
+            pbar.update(1)
 
 if __name__ == '__main__':
     te = torch.tensor([1,2,3], dtype=torch.float)

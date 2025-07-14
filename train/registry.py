@@ -22,11 +22,10 @@ class RegistryInfo(object):
         'VIRTUAL-v2': {'origin': 'VIRTUAL', 'action_type':'continous'},
     }
     model_list = {
-        'DDQN':{'action_type':['discrete'], 'start_func':ddqn_get_trained_model},
-        'DDPG':{'action_type':['continous'], 'start_func':ddpg_get_trained_model},
-        'PPOv1':{'action_type':['discrete'], 'start_func':ppov1_get_trained_model},
-        'PPOv2':{'action_type':['continous'], 'start_func':ppov2_get_trained_model},
-        # 'PPO':{'action_type':[], 'start_func':None}
+        'DDQN':{'action_type':['discrete'], 'start_func':ddqn_get_trained_model, 'on_policy':False},
+        'DDPG':{'action_type':['continous'], 'start_func':ddpg_get_trained_model, 'on_policy':False},
+        'PPOv1':{'action_type':['discrete'], 'start_func':ppov1_get_trained_model, 'on_policy':True},
+        'PPOv2':{'action_type':['continous'], 'start_func':ppov2_get_trained_model, 'on_policy':True},
     }
     env_start_registry = {
         'GYM': start_gym_env,
@@ -60,3 +59,7 @@ class RegistryInfo(object):
         env_params = env_inst.get_env_params()
         start_func = cls.model_list[model_name]['start_func']
         return  start_func(env_params)
+
+    @classmethod
+    def is_on_policy_train(cls, model_name):
+        return  cls.model_list[model_name]['on_policy']
