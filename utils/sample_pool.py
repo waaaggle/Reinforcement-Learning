@@ -37,6 +37,18 @@ class SamplePool(object):
         zip_samples['infos'] = infos
         return zip_samples
 
+    def samples_all_in_order(self):
+        zip_samples = {}
+        states,actions,rewards,next_states,dones,infos = zip(*self.memory_queue)      #按元素解包，然后按位置组成元组
+        zip_samples['states'] = states
+        zip_samples['actions'] = actions
+        zip_samples['rewards'] = rewards
+        zip_samples['next_states'] = next_states
+        zip_samples['dones'] = dones
+        zip_samples['infos'] = infos
+        return zip_samples
+
+
     def size(self):
         return len(self.memory_queue)
 
