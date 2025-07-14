@@ -58,7 +58,7 @@ class DDQN(BasicModel):
 
     def train(self, samples):
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)
-        actions_tensor = torch.tensor(samples['actions']).unsqueeze(1)
+        actions_tensor = torch.tensor(samples['actions'], dtype=torch.int64).unsqueeze(1)
         rewards_tensor = torch.tensor(samples['rewards'], dtype=torch.float32).unsqueeze(1)
         next_states_tensor = torch.tensor(samples['next_states'], dtype=torch.float32)
         dones_tensor = torch.tensor(samples['dones'], dtype=torch.float32).unsqueeze(1)

@@ -33,16 +33,15 @@ class BasicModel(ABC):
     #GAE函数，广义优势估计
     #lamada用于控制优势受多少step步数影响
     def compute_advantage(self, gamma, lmbda, td_delta):
-        td_delta = td_delta.detach().numpy()
         advantage_list = []
         advantage = 0.0
-        for delta in td_delta[::-1]:        #每一步的delta近似于每一步的advantage，把所有step的delta累加起来就是每一步step的优势
+        for delta in reversed(td_delta):        #每一步的delta近似于每一步的advantage，把所有step的delta累加起来就是每一步step的优势
             #每个state的优势是反向通过delta近似累加计算出来的，detla为通过rt + gamma*v(st+1)-V(st)近似替代At=Q(st,at)-V(st)
             advantage = gamma * lmbda * advantage + delta
             advantage_list.append(advantage)
         advantage_list.reverse()
         #返回的是每个 state 对应的 advantage，每个 advantage 是以该 state 为起点，未来 TD 残差的加权和（指数衰减），不是所有 state 的 advantage 的累加
-        return torch.tensor(advantage_list, dtype=torch.float32)
+        return torch.stack(advantage_list)
 
     #以概率ε随机探索，以1-ε概率选择当前最优动作
     #与策略无关，一般是off-policy算法采用

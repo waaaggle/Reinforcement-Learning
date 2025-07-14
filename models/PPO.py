@@ -15,7 +15,7 @@ class ActorNetworkDiscrete(nn.Module):
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
-        return F.softmax(self.fc2(x), dim=1)      #action个数，得到action的概率分布
+        return F.softmax(self.fc2(x), dim=0)      #action个数，得到action的概率分布
 
 #连续动作的actor模型
 class ActorNetContinuous(torch.nn.Module):
@@ -86,18 +86,25 @@ class PPOv1(PPOBase):
 
     # state只可能是一条样本，不能是batch
     def take_action(self, states_tensor)->torch.Tensor:
+        print('states_tensor ', states_tensor)
         actions = self.actor_net(states_tensor)        #输出的已经是概率分布
         select_action = self.take_action_probility(actions)
-        return select_action.item()  #tensor,得到的是action值
+        return select_action #tensor,得到的是action值
 
     def train(self, samples):
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)
-        actions_tensor = torch.tensor(samples['actions'], dtype=torch.float32)
+        actions_tensor = torch.tensor(samples['actions'], dtype=torch.int64)
         if actions_tensor.dim() == 1:
             actions_tensor = actions_tensor.unsqueeze(1)
         rewards_tensor = torch.tensor(samples['rewards'], dtype=torch.float32).unsqueeze(1)
         next_states_tensor = torch.tensor(samples['next_states'], dtype=torch.float32)
         dones_tensor = torch.tensor(samples['dones'], dtype=torch.float32).unsqueeze(1)
+
+        # print('states_tensor ', states_tensor)
+        # print('actions_tensor ', actions_tensor)
+        # print('rewards_tensor ', rewards_tensor)
+        # print('next_states_tensor ', next_states_tensor)
+        # print('dones_tensor ', dones_tensor)
 
         #使用target完了计算next_V_S,使用的是状态价值V,不是状态动作价值Q
         next_V_S = self.critic_net(next_states_tensor)
@@ -107,7 +114,7 @@ class PPOv1(PPOBase):
         td_delta = td_target - self.critic_net(states_tensor)
 
         #计算优势
-        advantage = self.compute_advantage(self.gamma, self.lamda, td_delta)
+        advantage = self.compute_advantage(self.gamma, self.lamda, td_delta).detach()
         old_log_probs = torch.log(self.actor_net(states_tensor).gather(1, actions_tensor)).detach()
         for _ in range(self.epochs):
             new_log_probs = torch.log(self.actor_net(states_tensor).gather(1, actions_tensor))
@@ -118,12 +125,13 @@ class PPOv1(PPOBase):
             critic_loss = torch.mean(F.mse_loss(self.critic_net(states_tensor), td_target.detach()))
 
             self.actor_optimizer.zero_grad()
-            self.critic_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_loss.append(actor_loss.item())
-            critic_loss.backward()
-            self.actor_loss.append(actor_loss.item())
             self.actor_optimizer.step()
+
+            self.critic_optimizer.zero_grad()
+            critic_loss.backward()
+            self.critic_loss.append(critic_loss.item())
             self.critic_optimizer.step()
 
 #连续模型
@@ -138,7 +146,7 @@ class PPOv2(PPOBase):
         self.lamda = lamda
         self.action_bound = action_bound
         #actor网络
-        self.actor_net = ActorNetworkDiscrete(state_dim, hidden_dim, action_dim)
+        self.actor_net = ActorNetContinuous(state_dim, hidden_dim, action_dim, action_bound)
         self.actor_optimizer = torch.optim.Adam(self.actor_net.parameters(), lr=actor_learning_rate)  # target网络拷贝actor_net网络参数
         #记录总reward
         self.epsode_rewards = []
@@ -147,7 +155,8 @@ class PPOv2(PPOBase):
     def take_action(self, states_tensor)->torch.Tensor:
         mu, sigma = self.actor_net(states_tensor)
         select_action = self.take_action_with_distribution(mu, sigma)
-        return select_action.item()  #tensor,得到的是action值
+        # print('select action', select_action)
+        return select_action  #tensor,得到的是action值
 
     def train(self, samples):
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)
@@ -158,6 +167,12 @@ class PPOv2(PPOBase):
         next_states_tensor = torch.tensor(samples['next_states'], dtype=torch.float32)
         dones_tensor = torch.tensor(samples['dones'], dtype=torch.float32).unsqueeze(1)
 
+        # print('states_tensor ', states_tensor)
+        # print('actions_tensor ', actions_tensor)
+        # print('rewards_tensor ', rewards_tensor)
+        # print('next_states_tensor ', next_states_tensor)
+        # print('dones_tensor ', dones_tensor)
+
         #使用target完了计算next_V_S,使用的是状态价值V,不是状态动作价值Q
         next_V_S = self.critic_net(next_states_tensor)
 
@@ -166,14 +181,14 @@ class PPOv2(PPOBase):
         td_delta = td_target - self.critic_net(states_tensor)
 
         #计算优势
-        advantage = self.compute_advantage(self.gamma, self.lamda, td_delta)
+        advantage = self.compute_advantage(self.gamma, self.lamda, td_delta).detach()
         mu, std = self.actor_net(states_tensor)
-        action_dists = torch.distributions.Normal(mu.detach(), std.detach())
+        action_dists = torch.distributions.Normal(mu, std)
         # 动作是正态分布
-        old_log_probs = action_dists.log_prob(actions_tensor)
+        old_log_probs = action_dists.log_prob(actions_tensor).detach()
         for _ in range(self.epochs):
             mu, std = self.actor_net(states_tensor)
-            action_dists = torch.distributions.Normal(mu.detach(), std.detach())
+            action_dists = torch.distributions.Normal(mu, std)
             new_log_probs = action_dists.log_prob(actions_tensor)
             ratio = torch.exp(new_log_probs - old_log_probs)
             surr1 = ratio * advantage
@@ -182,12 +197,13 @@ class PPOv2(PPOBase):
             critic_loss = torch.mean(F.mse_loss(self.critic_net(states_tensor), td_target.detach()))
 
             self.actor_optimizer.zero_grad()
-            self.critic_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_loss.append(actor_loss.item())
-            critic_loss.backward()
-            self.actor_loss.append(actor_loss.item())
             self.actor_optimizer.step()
+
+            self.critic_optimizer.zero_grad()
+            critic_loss.backward()
+            self.critic_loss.append(critic_loss.item())
             self.critic_optimizer.step()
 
 #离散模型
@@ -225,19 +241,19 @@ def ppov2_get_trained_model(env_params):
     return train_model
 
 if __name__ == '__main__':
-    batch_samples = {
-        'states':([1,2,3,4,5], [2,3,4,5,6], [11,12,13,14,15], [21,22,23,24,25], [201,202,230,204,205]),
-        'actions':(0, 1, 2, 1, 2),
-        'rewards':(11, 21, 22, 0, 30),
-        'next_states':([2,3,4,5,6], [11,12,13,14,15], [1,2,3,4,5], [201,202,230,204,205], [21,22,23,24,25]),
-        'dones':(1, 0, 0, 1, 0),
-        'infos':('test 1', 'test 2', 'test 3', 'test 4', 'test 5', ),
-    }
-    train_model = PPOv1(5, 1e-4, 1e-3, 0.2, 0.99, 0.95, 128, 5, 3)
-    for _ in range(100):
-        train_model.train(batch_samples)
-    train_model.show_procedure()
-
+    # batch_samples = {
+    #     'states':([1,2,3,4,5], [2,3,4,5,6], [11,12,13,14,15], [21,22,23,24,25], [201,202,230,204,205]),
+    #     'actions':(0, 1, 2, 1, 2),
+    #     'rewards':(11, 21, 22, 0, 30),
+    #     'next_states':([2,3,4,5,6], [11,12,13,14,15], [1,2,3,4,5], [201,202,230,204,205], [21,22,23,24,25]),
+    #     'dones':(1, 0, 0, 1, 0),
+    #     'infos':('test 1', 'test 2', 'test 3', 'test 4', 'test 5', ),
+    # }
+    # train_model = PPOv1(5, 1e-4, 1e-3, 0.2, 0.99, 0.95, 128, 5, 3)
+    # for _ in range(100):
+    #     train_model.train(batch_samples)
+    # train_model.show_procedure()
+    #
     batch_samples = {
         'states':([1,2,3,4,5], [2,3,4,5,6], [11,12,13,14,15], [21,22,23,24,25], [201,202,230,204,205]),
         'actions':([0, 1, 3], [1, 1, 3], [0, 3, 2], [2, 3, 1], [3, 1, 3]),
