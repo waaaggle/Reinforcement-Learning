@@ -29,7 +29,10 @@ class ActorNetContinuous(torch.nn.Module):
     def forward(self, x):
         x = F.relu(self.fc1(x))
         mu = self.action_bound * torch.tanh(self.fc_mu(x))
-        std = F.softplus(self.fc_std(x))
+        # std = F.softplus(self.fc_std(x))
+        log_std = self.fc_std(x)
+        log_std = torch.clamp(log_std, min=-4, max=1)  # 对应std在[0.018, 2.7]
+        std = torch.exp(log_std)
         return mu, std            #输出均值于方差
 
 #状态价值模型
@@ -47,6 +50,7 @@ class CriticNetwork(nn.Module):
 class PPOBase(BasicModel):
     def __init__(self, critic_learning_rate, hidden_dim, state_dim):
         super().__init__()
+        self.episode_rewards = None
         self.actor_loss = []
         self.critic_loss = []
         self.critic_learning_rate = critic_learning_rate
@@ -55,10 +59,10 @@ class PPOBase(BasicModel):
         self.critic_optimizer = torch.optim.Adam(self.critic_net.parameters(),
                                                  lr=critic_learning_rate)  # target网络拷贝critic_net网络参数
         # 记录总reward
-        self.epsode_rewards = []
+        self.episode_rewards = []
 
-    def update_epsode_rewards(self, epsode_reward):
-        self.epsode_rewards.append(epsode_reward)
+    def update_episode_rewards(self, episode_reward):
+        self.episode_rewards.append(episode_reward)
 
     def update_target_model(self):
         raise Exception('ppo no target net.')
@@ -67,7 +71,7 @@ class PPOBase(BasicModel):
         my_logger.info("train ddqn end, actor loss count:{}, critic loss count:{}".format(len(self.actor_loss),
                                                                                           len(self.critic_loss)))
         show_train_procedure(actor_loss=self.actor_loss, critic_loss=self.critic_loss,
-                             epsode_rewards=self.epsode_rewards)
+                             episode_rewards=self.episode_rewards)
 #离散模型
 class PPOv1(PPOBase):
     def __init__(self, epochs, actor_learning_rate, critic_learning_rate, eps, gamma, lamda, hidden_dim, state_dim, action_count):
@@ -82,11 +86,11 @@ class PPOv1(PPOBase):
         self.actor_net = ActorNetworkDiscrete(state_dim, hidden_dim, action_count)
         self.actor_optimizer = torch.optim.Adam(self.actor_net.parameters(), lr=actor_learning_rate)  # target网络拷贝actor_net网络参数
         #记录总reward
-        self.epsode_rewards = []
+        self.episode_rewards = []
 
     # state只可能是一条样本，不能是batch
     def take_action(self, states_tensor)->torch.Tensor:
-        print('states_tensor ', states_tensor)
+        # print('states_tensor ', states_tensor)
         actions = self.actor_net(states_tensor)        #输出的已经是概率分布
         select_action = self.take_action_probility(actions)
         return select_action #tensor,得到的是action值
@@ -116,6 +120,8 @@ class PPOv1(PPOBase):
         #计算优势
         advantage = self.compute_advantage(self.gamma, self.lamda, td_delta).detach()
         old_log_probs = torch.log(self.actor_net(states_tensor).gather(1, actions_tensor)).detach()
+        epoch_actor_loss = 0
+        epoch_critic_loss = 0
         for _ in range(self.epochs):
             new_log_probs = torch.log(self.actor_net(states_tensor).gather(1, actions_tensor))
             ratio = torch.exp(new_log_probs - old_log_probs)
@@ -126,13 +132,15 @@ class PPOv1(PPOBase):
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
-            self.actor_loss.append(actor_loss.item())
+            epoch_actor_loss = actor_loss.item()
             self.actor_optimizer.step()
 
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
-            self.critic_loss.append(critic_loss.item())
+            epoch_critic_loss = critic_loss.item()
             self.critic_optimizer.step()
+        self.actor_loss.append(epoch_actor_loss)
+        self.critic_loss.append(epoch_critic_loss)
 
 #连续模型
 class PPOv2(PPOBase):
@@ -149,7 +157,7 @@ class PPOv2(PPOBase):
         self.actor_net = ActorNetContinuous(state_dim, hidden_dim, action_dim, action_bound)
         self.actor_optimizer = torch.optim.Adam(self.actor_net.parameters(), lr=actor_learning_rate)  # target网络拷贝actor_net网络参数
         #记录总reward
-        self.epsode_rewards = []
+        self.episode_rewards = []
 
     # state只可能是一条样本，不能是batch,按照正太分布密度函数采样
     def take_action(self, states_tensor)->torch.Tensor:
@@ -167,6 +175,9 @@ class PPOv2(PPOBase):
         next_states_tensor = torch.tensor(samples['next_states'], dtype=torch.float32)
         dones_tensor = torch.tensor(samples['dones'], dtype=torch.float32).unsqueeze(1)
 
+        # print("states_tensor nan:", torch.isnan(states_tensor).any())
+        # print("actions_tensor nan:", torch.isnan(actions_tensor).any())
+
         # print('states_tensor ', states_tensor)
         # print('actions_tensor ', actions_tensor)
         # print('rewards_tensor ', rewards_tensor)
@@ -182,12 +193,19 @@ class PPOv2(PPOBase):
 
         #计算优势
         advantage = self.compute_advantage(self.gamma, self.lamda, td_delta).detach()
+        advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
         mu, std = self.actor_net(states_tensor)
         action_dists = torch.distributions.Normal(mu, std)
         # 动作是正态分布
         old_log_probs = action_dists.log_prob(actions_tensor).detach()
+        epoch_actor_loss = 0
+        epoch_critic_loss = 0
         for _ in range(self.epochs):
             mu, std = self.actor_net(states_tensor)
+            # print("mu nan:", torch.isnan(mu).any())
+            # print("std nan:", torch.isnan(std).any())
+            # print("std min/max:", std.min().item(), std.max().item())
+
             action_dists = torch.distributions.Normal(mu, std)
             new_log_probs = action_dists.log_prob(actions_tensor)
             ratio = torch.exp(new_log_probs - old_log_probs)
@@ -196,15 +214,25 @@ class PPOv2(PPOBase):
             actor_loss = torch.mean(-torch.min(surr1, surr2))  # PPO损失函数
             critic_loss = torch.mean(F.mse_loss(self.critic_net(states_tensor), td_target.detach()))
 
+            if torch.isnan(actor_loss):
+                print("actor_loss nan")
+            if torch.isnan(critic_loss):
+                print("critic_loss nan")
+
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
-            self.actor_loss.append(actor_loss.item())
+            epoch_actor_loss = actor_loss.item()
             self.actor_optimizer.step()
 
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
-            self.critic_loss.append(critic_loss.item())
+            epoch_critic_loss = critic_loss.item()
             self.critic_optimizer.step()
+        self.actor_loss.append(epoch_actor_loss)
+        self.critic_loss.append(epoch_critic_loss)
+
+        torch.nn.utils.clip_grad_norm_(self.actor_net.parameters(), max_norm=0.5)
+        torch.nn.utils.clip_grad_norm_(self.critic_net.parameters(), max_norm=0.5)
 
 #离散模型
 def ppov1_get_trained_model(env_params):
@@ -263,6 +291,6 @@ if __name__ == '__main__':
         'infos':('test 1', 'test 2', 'test 3', 'test 4', 'test 5', ),
     }
     train_model = PPOv2(5, 1e-4, 1e-3, 0.2, 0.99, 0.95, 3, 128, 5, 3)
-    for _ in range(100):
+    for _ in range(1):
         train_model.train(batch_samples)
     train_model.show_procedure()

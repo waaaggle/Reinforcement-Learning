@@ -34,7 +34,7 @@ class DDQN(BasicModel):
         self.target_q_net.load_state_dict(self.q_net.state_dict())
         self.q_net_optimizer = torch.optim.Adam(self.q_net.parameters(), lr=learning_rate)  #target网络拷贝q_net网络参数
         self.total_train_steps = 0
-        self.epsode_rewards = []
+        self.episode_rewards = []
 
     #state只可能是一条样本，不能是batch
     def take_action(self, states_tensor)->torch.Tensor:
@@ -45,8 +45,8 @@ class DDQN(BasicModel):
 
         return select_action    #得到的是action的编号，不是action值
 
-    def update_epsode_rewards(self, epsode_reward):
-        self.epsode_rewards.append(epsode_reward)
+    def update_episode_rewards(self, episode_reward):
+        self.episode_rewards.append(episode_reward)
 
     def update_target_model(self):
         if self.total_train_steps % 1000 == 0:
@@ -54,7 +54,7 @@ class DDQN(BasicModel):
 
     def show_procedure(self):
         my_logger.info("train ddqn end, loss count:{}".format(len(self.loss)))
-        show_train_procedure(ddqn_loss = self.loss, epsode_rewards = self.epsode_rewards)
+        show_train_procedure(ddqn_loss = self.loss, episode_rewards = self.episode_rewards)
 
     def train(self, samples):
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)
@@ -82,7 +82,7 @@ class DDQN(BasicModel):
         #计算下个state最大action价值，采用target网络
         # print(next_state_max_action)
         next_Q_S_A_max = target_next_state_value.gather(1, next_state_max_action)
-        # 拟合目标为：Q(S,A)<---R + gamma*Q(S',A'_max)*(1-dones)
+        # 拟合目标为：Q(S,A)<---R + gamma*Q(S_next,A_next_max)*(1-dones)
         td_target = rewards_tensor + self.gamma*next_Q_S_A_max*(1-dones_tensor.float())
 
         #均方误差损失，网络越准越好

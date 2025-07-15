@@ -53,7 +53,7 @@ class DDPG(BasicModel):
         self.target_critic_net.load_state_dict(self.critic_net.state_dict())
         self.critic_optimizer = torch.optim.Adam(self.critic_net.parameters(), lr=critic_learning_rate)  #target网络拷贝critic_net网络参数
         #记录总reward
-        self.epsode_rewards = []
+        self.episode_rewards = []
 
     # state只可能是一条样本，不能是batch
     def take_action(self, states_tensor)->torch.Tensor:
@@ -62,8 +62,8 @@ class DDPG(BasicModel):
         select_action = torch.clamp(select_action, -self.actor_net.action_bound, self.actor_net.action_bound)
         return select_action  #tensor,得到的是action值
 
-    def update_epsode_rewards(self, epsode_reward):
-        self.epsode_rewards.append(epsode_reward)
+    def update_episode_rewards(self, episode_reward):
+        self.episode_rewards.append(episode_reward)
 
     def update_target_model(self):
         super().update_model_params(self.target_actor_net, self.actor_net, True, self.tau)
@@ -71,7 +71,7 @@ class DDPG(BasicModel):
 
     def show_procedure(self):
         my_logger.info("train ddqn end, actor loss count:{}, critic loss count:{}".format(len(self.actor_loss),len(self.critic_loss)))
-        show_train_procedure(actor_loss = self.actor_loss, critic_loss= self.critic_loss, epsode_rewards = self.epsode_rewards)
+        show_train_procedure(actor_loss = self.actor_loss, critic_loss= self.critic_loss, episode_rewards = self.episode_rewards)
 
     def train(self, samples):
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)

@@ -8,7 +8,7 @@ class BasicModel(ABC):
         pass
 
     @abstractmethod
-    def update_epsode_rewards(self, epsode_reward):
+    def update_episode_rewards(self, episode_reward):
         ...
     @abstractmethod
     def update_target_model(self):
