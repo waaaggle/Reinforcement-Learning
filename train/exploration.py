@@ -34,13 +34,13 @@ def on_policy_expolre(samples_pool, agent, env_inst, num_episodes):
                 episode_reward += reward
                 samples_pool.push((obs, action, reward, next_obs, done, info))
                 obs = next_obs
-            agent.update_epsode_rewards(episode_reward)
+            agent.update_episode_rewards(episode_reward)
             #按顺序从头到尾打包sample
             batch_samples = samples_pool.samples_all_in_order()
             agent.train(batch_samples)
             episodes_count += 1
             #进度条前进1，自动根据总episode映射
-            pbar.set_postfix({'episode': '%d' % (episodes_count), 'return': '%.3f' % np.mean(agent.epsode_rewards[-10:])})
+            pbar.set_postfix({'episode': '%d' % (episodes_count), 'return': '%.3f' % np.mean(agent.episode_rewards[-10:])})
             pbar.update(1)
 
 #使用agent在环境中探索num_episodes次,没探索一次会产生多条样本放入样本池，每次从样本池随机选一个batch训练
@@ -61,10 +61,10 @@ def off_policy_expolre(samples_pool, agent, env_inst, num_episodes, warmup_steps
                     batch_samples = samples_pool.samples_k(batch_size)
                     agent.train(batch_samples)
                 obs = next_obs
-            agent.update_epsode_rewards(episode_reward)
+            agent.update_episode_rewards(episode_reward)
             episodes_count += 1
             #进度条前进1，自动根据总episode映射
-            pbar.set_postfix({'episode': '%d' % (episodes_count), 'return': '%.3f' % np.mean(agent.epsode_rewards[-10:])})
+            pbar.set_postfix({'episode': '%d' % (episodes_count), 'return': '%.3f' % np.mean(agent.episode_rewards[-10:])})
             pbar.update(1)
 
 if __name__ == '__main__':

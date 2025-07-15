@@ -48,8 +48,8 @@ if __name__ == '__main__':
     # train('DDQN', 'VIRTUAL-v1')
     # train('DDPG', 'BipedalWalker-v3')
     # train('DDPG', 'VIRTUAL-v2')
-
-    # train('PPOv1', 'LunarLander-v3')
+    #
+    train('PPOv1', 'LunarLander-v3')
     # train('PPOv1', 'VIRTUAL-v1')
-    train('PPOv2', 'BipedalWalker-v3')
+    # train('PPOv2', 'BipedalWalker-v3')
     # train('PPOv2', 'VIRTUAL-v2')
