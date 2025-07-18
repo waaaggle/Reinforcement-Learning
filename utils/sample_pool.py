@@ -6,12 +6,8 @@ class Sample(object):
         pass
 
 # 每一个batch sample格式为
-# sample['states'] = ['s1', 's2',...'sn']
-# sample['actions'] = ['a1', 'a2',...'an']
-# sample['rewards'] = ['r1', 'r2',...'rn']
-# sample['next_states'] = ['s'1', 's'2',...'s'n']
-# sample['dones'] = ['done1', 'done2',...'donen']
-# sample['infos'] = ['info1', 'info2',...'infon']
+# 每条sample为一个tuple: (state, action, reward, next_state, done, info)
+# SamplePool中每次采样返回的batch为若干这样的tuple，按位置解包
 class SamplePool(object):
     def __init__(self, max_count):
         self.memory_queue = deque(maxlen=max_count)

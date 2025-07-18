@@ -13,6 +13,7 @@ def load_training_config(param_section):
     if param_section == 'TRAINING':
         training_params['sample_pool_size'] = config.getint(param_section, 'sample_pool_size')
         training_params['num_episodes'] = config.getint(param_section, 'num_episodes')
+        training_params['evaluate_num_episodes'] = config.getint(param_section, 'evaluate_num_episodes')
         training_params['warmup_steps'] = config.getint(param_section, 'warmup_steps')
         training_params['num_episodes_per_train'] = config.getint(param_section, 'num_episodes_per_train')
         training_params['batch_size'] = config.getint(param_section, 'batch_size')

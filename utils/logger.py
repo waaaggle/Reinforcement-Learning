@@ -43,5 +43,5 @@ def get_logger(name=None):
     return logging.getLogger(name)
 
 # 初始化日志，输出到文件和终端
-init_logger("logs/app.log", level=logging.ERROR)
+init_logger("../utils/logs/app.log", level=logging.ERROR)
 my_logger = get_logger()
