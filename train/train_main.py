@@ -1,9 +1,10 @@
+import sys
 import time
 from train.exploration import  off_policy_expolre, on_policy_expolre
 from utils.logger import my_logger
 from utils.parse_config import load_training_config
 from utils.sample_pool import SamplePool
-from registry import RegistryInfo
+from models.registry import RegistryInfo
 
 def timeit(func):
     def wrapper(*args, **kwargs):
@@ -40,16 +41,19 @@ def train(model_name, env_name):
     # 关闭采样环境
     env_inst.close()
 
+    #保存参数
+    train_model.save_state_dict()
+
     #显示损失
-    train_model.show_procedure()
+    train_model.show_train_result()
 
 if __name__ == '__main__':
-    # train('DDQN', 'LunarLander-v3')
-    # train('DDQN', 'VIRTUAL-v1')
-    # train('DDPG', 'BipedalWalker-v3')
-    # train('DDPG', 'VIRTUAL-v2')
+    train('DDQN', 'LunarLander-v3')
+    train('DDQN', 'VIRTUAL-v1')
+    train('DDPG', 'BipedalWalker-v3')
+    train('DDPG', 'VIRTUAL-v2')
     #
     train('PPOv1', 'LunarLander-v3')
-    # train('PPOv1', 'VIRTUAL-v1')
-    # train('PPOv2', 'BipedalWalker-v3')
-    # train('PPOv2', 'VIRTUAL-v2')
+    train('PPOv1', 'VIRTUAL-v1')
+    train('PPOv2', 'BipedalWalker-v3')
+    train('PPOv2', 'VIRTUAL-v2')
