@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,7 +16,7 @@ class ActorNetworkDiscrete(nn.Module):
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
-        return F.softmax(self.fc2(x), dim=0)      #action个数，得到action的概率分布
+        return F.softmax(self.fc2(x), dim=-1)      #action个数，得到action的概率分布
 
 #连续动作的actor模型
 class ActorNetContinuous(torch.nn.Module):
@@ -50,7 +51,6 @@ class CriticNetwork(nn.Module):
 class PPOBase(BasicModel):
     def __init__(self, critic_learning_rate, hidden_dim, state_dim):
         super().__init__()
-        self.episode_rewards = None
         self.actor_loss = []
         self.critic_loss = []
         self.critic_learning_rate = critic_learning_rate
@@ -58,8 +58,6 @@ class PPOBase(BasicModel):
         self.critic_net = CriticNetwork(state_dim, hidden_dim)
         self.critic_optimizer = torch.optim.Adam(self.critic_net.parameters(),
                                                  lr=critic_learning_rate)  # target网络拷贝critic_net网络参数
-        # 记录总reward
-        self.episode_rewards = []
 
     def update_episode_rewards(self, episode_reward):
         self.episode_rewards.append(episode_reward)
@@ -67,7 +65,7 @@ class PPOBase(BasicModel):
     def update_target_model(self):
         raise Exception('ppo no target net.')
 
-    def show_procedure(self):
+    def show_train_result(self):
         my_logger.info("train ddqn end, actor loss count:{}, critic loss count:{}".format(len(self.actor_loss),
                                                                                           len(self.critic_loss)))
         show_train_procedure(actor_loss=self.actor_loss, critic_loss=self.critic_loss,
@@ -85,15 +83,25 @@ class PPOv1(PPOBase):
         #actor网络
         self.actor_net = ActorNetworkDiscrete(state_dim, hidden_dim, action_count)
         self.actor_optimizer = torch.optim.Adam(self.actor_net.parameters(), lr=actor_learning_rate)  # target网络拷贝actor_net网络参数
-        #记录总reward
-        self.episode_rewards = []
 
     # state只可能是一条样本，不能是batch
-    def take_action(self, states_tensor)->torch.Tensor:
+    def take_action(self, states_tensor, is_evaluate=False)->torch.Tensor:
+        self.total_steps += 1
         # print('states_tensor ', states_tensor)
         actions = self.actor_net(states_tensor)        #输出的已经是概率分布
-        select_action = self.take_action_probility(actions)
+        if not is_evaluate:
+            select_action = self.take_action_probility(actions)
+        else:
+            select_action = torch.argmax(actions, dim=-1)
         return select_action #tensor,得到的是action值
+
+    def load_state_dict_eval(self):
+        if not os.path.exists('ppov1_actor_net.pth'):
+            raise FileNotFoundError(f"模型文件未找到：ppov1_actor_net.pth")
+        self.actor_net.load_state_dict(torch.load('ppov1_actor_net.pth'))
+
+    def save_state_dict(self):
+        torch.save(self.actor_net.state_dict(), '../evaluate/ppov1_actor_net.pth')
 
     def train(self, samples):
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)
@@ -156,15 +164,25 @@ class PPOv2(PPOBase):
         #actor网络
         self.actor_net = ActorNetContinuous(state_dim, hidden_dim, action_dim, action_bound)
         self.actor_optimizer = torch.optim.Adam(self.actor_net.parameters(), lr=actor_learning_rate)  # target网络拷贝actor_net网络参数
-        #记录总reward
-        self.episode_rewards = []
 
     # state只可能是一条样本，不能是batch,按照正太分布密度函数采样
-    def take_action(self, states_tensor)->torch.Tensor:
+    def take_action(self, states_tensor, is_evaluate=False)->torch.Tensor:
+        self.total_steps += 1
         mu, sigma = self.actor_net(states_tensor)
-        select_action = self.take_action_with_distribution(mu, sigma)
+        if not is_evaluate:
+            select_action = self.take_action_with_distribution(mu, sigma)
+        else:
+            select_action = mu
         # print('select action', select_action)
         return select_action  #tensor,得到的是action值
+
+    def load_state_dict_eval(self):
+        if not os.path.exists('./ppov2_actor_net.pth'):
+            raise FileNotFoundError(f"模型文件未找到：ppov2_actor_net.pth")
+        self.actor_net.load_state_dict(torch.load('ppov2_actor_net.pth'))
+
+    def save_state_dict(self):
+        torch.save(self.actor_net.state_dict(), '../evaluate/ppov2_actor_net.pth')
 
     def train(self, samples):
         states_tensor = torch.tensor(samples['states'], dtype=torch.float32)
@@ -202,9 +220,6 @@ class PPOv2(PPOBase):
         epoch_critic_loss = 0
         for _ in range(self.epochs):
             mu, std = self.actor_net(states_tensor)
-            # print("mu nan:", torch.isnan(mu).any())
-            # print("std nan:", torch.isnan(std).any())
-            # print("std min/max:", std.min().item(), std.max().item())
 
             action_dists = torch.distributions.Normal(mu, std)
             new_log_probs = action_dists.log_prob(actions_tensor)
@@ -213,11 +228,6 @@ class PPOv2(PPOBase):
             surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage  # 截断
             actor_loss = torch.mean(-torch.min(surr1, surr2))  # PPO损失函数
             critic_loss = torch.mean(F.mse_loss(self.critic_net(states_tensor), td_target.detach()))
-
-            if torch.isnan(actor_loss):
-                print("actor_loss nan")
-            if torch.isnan(critic_loss):
-                print("critic_loss nan")
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -269,19 +279,19 @@ def ppov2_get_trained_model(env_params):
     return train_model
 
 if __name__ == '__main__':
-    # batch_samples = {
-    #     'states':([1,2,3,4,5], [2,3,4,5,6], [11,12,13,14,15], [21,22,23,24,25], [201,202,230,204,205]),
-    #     'actions':(0, 1, 2, 1, 2),
-    #     'rewards':(11, 21, 22, 0, 30),
-    #     'next_states':([2,3,4,5,6], [11,12,13,14,15], [1,2,3,4,5], [201,202,230,204,205], [21,22,23,24,25]),
-    #     'dones':(1, 0, 0, 1, 0),
-    #     'infos':('test 1', 'test 2', 'test 3', 'test 4', 'test 5', ),
-    # }
-    # train_model = PPOv1(5, 1e-4, 1e-3, 0.2, 0.99, 0.95, 128, 5, 3)
-    # for _ in range(100):
-    #     train_model.train(batch_samples)
-    # train_model.show_procedure()
-    #
+    batch_samples = {
+        'states':([1,2,3,4,5], [2,3,4,5,6], [11,12,13,14,15], [21,22,23,24,25], [201,202,230,204,205]),
+        'actions':(0, 1, 2, 1, 2),
+        'rewards':(11, 21, 22, 0, 30),
+        'next_states':([2,3,4,5,6], [11,12,13,14,15], [1,2,3,4,5], [201,202,230,204,205], [21,22,23,24,25]),
+        'dones':(1, 0, 0, 1, 0),
+        'infos':('test 1', 'test 2', 'test 3', 'test 4', 'test 5', ),
+    }
+    train_model = PPOv1(5, 1e-4, 1e-3, 0.2, 0.99, 0.95, 128, 5, 3)
+    for _ in range(100):
+        train_model.train(batch_samples)
+    train_model.show_train_result()
+
     batch_samples = {
         'states':([1,2,3,4,5], [2,3,4,5,6], [11,12,13,14,15], [21,22,23,24,25], [201,202,230,204,205]),
         'actions':([0, 1, 3], [1, 1, 3], [0, 3, 2], [2, 3, 1], [3, 1, 3]),
@@ -291,6 +301,6 @@ if __name__ == '__main__':
         'infos':('test 1', 'test 2', 'test 3', 'test 4', 'test 5', ),
     }
     train_model = PPOv2(5, 1e-4, 1e-3, 0.2, 0.99, 0.95, 3, 128, 5, 3)
-    for _ in range(1):
+    for _ in range(100):
         train_model.train(batch_samples)
-    train_model.show_procedure()
+    train_model.show_train_result()

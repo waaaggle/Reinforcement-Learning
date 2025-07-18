@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -52,15 +53,25 @@ class DDPG(BasicModel):
         self.target_critic_net = CriticNetwork(state_dim, action_dim, hidden_dim)
         self.target_critic_net.load_state_dict(self.critic_net.state_dict())
         self.critic_optimizer = torch.optim.Adam(self.critic_net.parameters(), lr=critic_learning_rate)  #target网络拷贝critic_net网络参数
-        #记录总reward
-        self.episode_rewards = []
 
     # state只可能是一条样本，不能是batch
-    def take_action(self, states_tensor)->torch.Tensor:
+    def take_action(self, states_tensor, is_evaluate=False)->torch.Tensor:
+        self.total_steps += 1
         actions = self.actor_net(states_tensor)
-        select_action = self.take_action_with_noise(actions, self.noise_std)
+        if not is_evaluate:
+            select_action = self.take_action_with_noise(actions, self.noise_std)
+        else:
+            select_action = actions
         select_action = torch.clamp(select_action, -self.actor_net.action_bound, self.actor_net.action_bound)
         return select_action  #tensor,得到的是action值
+
+    def load_state_dict_eval(self):
+        if not os.path.exists('ddppg_actor_net.pth'):
+            raise FileNotFoundError(f"模型文件未找到：ddppg_actor_net.pth")
+        self.actor_net.load_state_dict(torch.load('ddppg_actor_net.pth'))
+
+    def save_state_dict(self):
+        torch.save(self.actor_net.state_dict(), '../evaluate/ddppg_actor_net.pth')
 
     def update_episode_rewards(self, episode_reward):
         self.episode_rewards.append(episode_reward)
@@ -69,7 +80,7 @@ class DDPG(BasicModel):
         super().update_model_params(self.target_actor_net, self.actor_net, True, self.tau)
         super().update_model_params(self.target_critic_net, self.critic_net, True, self.tau)
 
-    def show_procedure(self):
+    def show_train_result(self):
         my_logger.info("train ddqn end, actor loss count:{}, critic loss count:{}".format(len(self.actor_loss),len(self.critic_loss)))
         show_train_procedure(actor_loss = self.actor_loss, critic_loss= self.critic_loss, episode_rewards = self.episode_rewards)
 
@@ -139,4 +150,4 @@ if __name__ == '__main__':
     train_model = DDPG(1e-4, 1e-3,0.99, 0.1,  0.05, 2, 128, 5, 2)
     for _ in range(100):
         train_model.train(batch_samples)
-    train_model.show_procedure()
+    train_model.show_train_result()

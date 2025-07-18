@@ -1,11 +1,27 @@
 from abc import ABC, abstractmethod
 import torch
 import random
+from utils.display import show_evaluate_procedure
 
 class BasicModel(ABC):
+    def __init__(self):
+        self.episode_rewards = []
+        self.total_steps = 0
+
     @abstractmethod
-    def take_action(self, states):
+    def load_state_dict_eval(self):
         pass
+
+    @abstractmethod
+    def save_state_dict(self):
+        pass
+
+    @abstractmethod
+    def take_action(self, states, is_evaluate=False):
+        pass
+
+    def show_evaluate_result(self):
+        show_evaluate_procedure(evaluate_rewards=self.episode_rewards)
 
     @abstractmethod
     def update_episode_rewards(self, episode_reward):
@@ -14,7 +30,7 @@ class BasicModel(ABC):
     def update_target_model(self):
         ...     #于pass等价
     @abstractmethod
-    def show_procedure(self):
+    def show_train_result(self):
         pass
     @abstractmethod
     def train(self, samples):

@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -33,26 +34,35 @@ class DDQN(BasicModel):
         self.target_q_net = DDQN_QNetwork(state_dim, hidden_dim, action_count)
         self.target_q_net.load_state_dict(self.q_net.state_dict())
         self.q_net_optimizer = torch.optim.Adam(self.q_net.parameters(), lr=learning_rate)  #target网络拷贝q_net网络参数
-        self.total_train_steps = 0
-        self.episode_rewards = []
 
     #state只可能是一条样本，不能是batch
-    def take_action(self, states_tensor)->torch.Tensor:
-        self.total_train_steps += 1
+    def take_action(self, states_tensor, is_evaluate=False)->torch.Tensor:
+        self.total_steps += 1
         actions = self.q_net(states_tensor)
-        epsilon = max(self.epsilon_end, self.epsilon_start - self.total_train_steps / self.epsilon_decay_steps * (self.epsilon_start - self.epsilon_end))
-        select_action = self.take_action_epsilon_greedy(epsilon, actions)
+        if not is_evaluate:
+            epsilon = max(self.epsilon_end, self.epsilon_start - self.total_steps / self.epsilon_decay_steps * (self.epsilon_start - self.epsilon_end))
+            select_action = self.take_action_epsilon_greedy(epsilon, actions)
+        else:
+            select_action = torch.argmax(actions, dim=-1)
 
         return select_action    #得到的是action的编号，不是action值
+
+    def load_state_dict_eval(self):
+        if not os.path.exists('ddqn_q_net.pth'):
+            raise FileNotFoundError(f"模型文件未找到：ddqn_q_net.pth")
+        self.q_net.load_state_dict(torch.load('ddqn_q_net.pth'))
+
+    def save_state_dict(self):
+        torch.save(self.q_net.state_dict(), '../evaluate/ddqn_q_net.pth')
 
     def update_episode_rewards(self, episode_reward):
         self.episode_rewards.append(episode_reward)
 
     def update_target_model(self):
-        if self.total_train_steps % 1000 == 0:
+        if self.total_steps % 1000 == 0:
             super().update_model_params(self.target_q_net, self.q_net)
 
-    def show_procedure(self):
+    def show_train_result(self):
         my_logger.info("train ddqn end, loss count:{}".format(len(self.loss)))
         show_train_procedure(ddqn_loss = self.loss, episode_rewards = self.episode_rewards)
 
@@ -63,11 +73,11 @@ class DDQN(BasicModel):
         next_states_tensor = torch.tensor(samples['next_states'], dtype=torch.float32)
         dones_tensor = torch.tensor(samples['dones'], dtype=torch.float32).unsqueeze(1)
 
-        print('states_tensor:', states_tensor)
-        print('actions_tensor:', actions_tensor)
-        print('rewards_tensor:', rewards_tensor)
-        print('next_states_tensor:', next_states_tensor)
-        print('dones_tensor:', dones_tensor)
+        # print('states_tensor:', states_tensor)
+        # print('actions_tensor:', actions_tensor)
+        # print('rewards_tensor:', rewards_tensor)
+        # print('next_states_tensor:', next_states_tensor)
+        # print('dones_tensor:', dones_tensor)
 
         #使用train网络获得当前当前action价值以及下个state最大价值action
         current_state_value = self.q_net(states_tensor)
@@ -89,6 +99,7 @@ class DDQN(BasicModel):
         loss = (Q_S_A - td_target.detach()).pow(2).mean()
         # my_logger.debug('ddqn loss:', loss.item())
         self.loss.append(loss.item())
+        print(loss.item())
 
         #反向传播更新网络
         self.q_net_optimizer.zero_grad()
@@ -126,4 +137,4 @@ if __name__ == '__main__':
     train_model = DDQN(1e-3, 50000, 1.0, 0.1, 0.99, 0.1, 128, 5, 3)
     for _ in range(100):
         train_model.train(batch_samples)
-    train_model.show_procedure()
+    train_model.show_train_result()
